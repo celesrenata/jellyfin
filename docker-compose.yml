@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: jellyfin-postgres
+    environment:
+      POSTGRES_DB: jellyfin
+      POSTGRES_USER: jellyfin
+      POSTGRES_PASSWORD: jellyfin
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jellyfin -d jellyfin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  jellyfin:
+    build: .
+    container_name: jellyfin-server
+    environment:
+      JELLYFIN_DB_TYPE: postgresql
+      JELLYFIN_DB_HOST: postgres
+      JELLYFIN_DB_PORT: 5432
+      JELLYFIN_DB_NAME: jellyfin
+      JELLYFIN_DB_USER: jellyfin
+      JELLYFIN_DB_PASSWORD: jellyfin
+      JELLYFIN_ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=jellyfin;Username=jellyfin;Password=jellyfin"
+    volumes:
+      - jellyfin_config:/config
+      - jellyfin_cache:/cache
+      - ./media:/media:ro
+    ports:
+      - "8096:8096"
+      - "8920:8920"
+      - "7359:7359/udp"
+      - "1900:1900/udp"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  jellyfin_config:
+  jellyfin_cache:

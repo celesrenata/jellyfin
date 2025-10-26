@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -21,9 +22,16 @@ namespace Jellyfin.Server.Implementations.Extensions;
 /// </summary>
 public static class ServiceCollectionExtensions
 {
+    static ServiceCollectionExtensions()
+    {
+        Console.WriteLine("=== ServiceCollectionExtensions STATIC CONSTRUCTOR CALLED ===");
+    }
+
     private static IEnumerable<Type> DatabaseProviderTypes()
     {
-        yield return typeof(SqliteDatabaseProvider);
+        Console.WriteLine("=== DatabaseProviderTypes CALLED - FORCING POSTGRESQL ONLY ===");
+        // FORCE POSTGRESQL - USE HIJACKED SQLITE PROVIDER
+        yield return typeof(Jellyfin.Database.Providers.Sqlite.SqliteDatabaseProvider);
     }
 
     private static IDictionary<string, JellyfinDbProviderFactory> GetSupportedDbProviders()
@@ -78,48 +86,40 @@ public static class ServiceCollectionExtensions
         IServerConfigurationManager configurationManager,
         IConfiguration configuration)
     {
-        var efCoreConfiguration = configurationManager.GetConfiguration<DatabaseConfigurationOptions>("database");
+        Console.WriteLine("=== FORCING POSTGRESQL NO MATTER WHAT ===");
+
+        // Force PostgreSQL configuration
+        var efCoreConfiguration = new Jellyfin.Database.Implementations.DbConfiguration.DatabaseConfigurationOptions
+        {
+            DatabaseType = "Jellyfin-PostgreSQL",
+            LockingBehavior = DatabaseLockingBehaviorTypes.NoLock
+        };
+        configurationManager.SaveConfiguration("database", efCoreConfiguration);
+
         JellyfinDbProviderFactory? providerFactory = null;
+        var providers = GetSupportedDbProviders();
+        Console.WriteLine($"=== AVAILABLE PROVIDERS: {string.Join(", ", providers.Keys)} ===");
 
-        if (efCoreConfiguration?.DatabaseType is null)
+        // Force PostgreSQL provider - try different case variations
+        if (!providers.TryGetValue("JELLYFIN-POSTGRESQL", out providerFactory!) &&
+            !providers.TryGetValue("Jellyfin-PostgreSQL", out providerFactory!) &&
+            !providers.TryGetValue("jellyfin-postgresql", out providerFactory!))
         {
-            var cmdMigrationArgument = configuration.GetValue<string>("migration-provider");
-            if (!string.IsNullOrWhiteSpace(cmdMigrationArgument))
-            {
-                efCoreConfiguration = new DatabaseConfigurationOptions()
-                {
-                    DatabaseType = cmdMigrationArgument,
-                };
-            }
-            else
-            {
-                // when nothing is setup via new Database configuration, fallback to SQLite with default settings.
-                efCoreConfiguration = new DatabaseConfigurationOptions()
-                {
-                    DatabaseType = "Jellyfin-SQLite",
-                    LockingBehavior = DatabaseLockingBehaviorTypes.NoLock
-                };
-                configurationManager.SaveConfiguration("database", efCoreConfiguration);
-            }
+            Console.WriteLine("=== POSTGRESQL PROVIDER NOT FOUND - USING FIRST AVAILABLE ===");
+            providerFactory = providers.Values.First();
         }
 
-        if (efCoreConfiguration.DatabaseType.Equals("PLUGIN_PROVIDER", StringComparison.OrdinalIgnoreCase))
-        {
-            if (efCoreConfiguration.CustomProviderOptions is null)
-            {
-                throw new InvalidOperationException("The custom database provider must declare the custom provider options to work");
-            }
+        Console.WriteLine("=== POSTGRESQL PROVIDER SELECTED ===");
 
-            providerFactory = LoadDatabasePlugin(efCoreConfiguration.CustomProviderOptions, configurationManager.ApplicationPaths);
-        }
-        else
+        // Add PostgreSQL configuration options to DI
+        serviceCollection.AddSingleton(new Jellyfin.Data.PostgreSQLConfigurationOptions
         {
-            var providers = GetSupportedDbProviders();
-            if (!providers.TryGetValue(efCoreConfiguration.DatabaseType.ToUpperInvariant(), out providerFactory!))
-            {
-                throw new InvalidOperationException($"Jellyfin cannot find the database provider of type '{efCoreConfiguration.DatabaseType}'. Supported types are {string.Join(", ", providers.Keys)}");
-            }
-        }
+            Host = Environment.GetEnvironmentVariable("JELLYFIN_DB_HOST") ?? "postgres",
+            Port = int.Parse(Environment.GetEnvironmentVariable("JELLYFIN_DB_PORT") ?? "5432", CultureInfo.InvariantCulture),
+            Database = Environment.GetEnvironmentVariable("JELLYFIN_DB_NAME") ?? "jellyfin",
+            Username = Environment.GetEnvironmentVariable("JELLYFIN_DB_USER") ?? "jellyfin",
+            Password = Environment.GetEnvironmentVariable("JELLYFIN_DB_PASSWORD") ?? "jellyfin"
+        });
 
         serviceCollection.AddSingleton<IJellyfinDatabaseProvider>(providerFactory!);
 

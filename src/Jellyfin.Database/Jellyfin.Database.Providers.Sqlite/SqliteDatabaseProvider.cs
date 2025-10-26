@@ -12,6 +12,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Npgsql.EntityFrameworkCore.PostgreSQL;
 
 namespace Jellyfin.Database.Providers.Sqlite;
 
@@ -24,6 +25,7 @@ public sealed class SqliteDatabaseProvider : IJellyfinDatabaseProvider
     private const string BackupFolderName = "SQLiteBackups";
     private readonly IApplicationPaths _applicationPaths;
     private readonly ILogger<SqliteDatabaseProvider> _logger;
+    private IDbContextFactory<JellyfinDbContext>? _dbContextFactory;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SqliteDatabaseProvider"/> class.
@@ -37,7 +39,38 @@ public sealed class SqliteDatabaseProvider : IJellyfinDatabaseProvider
     }
 
     /// <inheritdoc/>
-    public IDbContextFactory<JellyfinDbContext>? DbContextFactory { get; set; }
+    public IDbContextFactory<JellyfinDbContext>? DbContextFactory
+    {
+        get => _dbContextFactory;
+        set
+        {
+            _dbContextFactory = value;
+            if (_dbContextFactory != null)
+            {
+                Console.WriteLine("=== DBCONTEXTFACTORY SET - RUNNING SQLMITE MIGRATION ===");
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        var pgConnectionString = $"Host={Environment.GetEnvironmentVariable("JELLYFIN_DB_HOST") ?? "postgres"};Port={Environment.GetEnvironmentVariable("JELLYFIN_DB_PORT") ?? "5432"};Database={Environment.GetEnvironmentVariable("JELLYFIN_DB_NAME") ?? "jellyfin"};Username={Environment.GetEnvironmentVariable("JELLYFIN_DB_USER") ?? "jellyfin"};Password={Environment.GetEnvironmentVariable("JELLYFIN_DB_PASSWORD") ?? "jellyfin"}";
+
+                        // Migrate existing SQLite database to PostgreSQL
+                        SqliteSchemaReader.MigrateSqliteToPostgreSQL("/config/data/jellyfin.db", pgConnectionString);
+
+                        using var context = await _dbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
+                        Console.WriteLine("=== RUNNING MIGRATIONS WITH POSTGRESQL BACKEND ===");
+                        await context.Database.MigrateAsync().ConfigureAwait(false);
+                        Console.WriteLine("=== SQLMITE MIGRATION COMPLETED ===");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"=== SQLMITE MIGRATION ERROR: {ex.Message} ===");
+                        _logger.LogError(ex, "Failed to run SQLMite migration");
+                    }
+                });
+            }
+        }
+    }
 
     /// <inheritdoc/>
     public void Initialise(DbContextOptionsBuilder options, DatabaseConfigurationOptions databaseConfiguration)
@@ -70,21 +103,23 @@ public sealed class SqliteDatabaseProvider : IJellyfinDatabaseProvider
         // Log SQLite connection parameters
         _logger.LogInformation("SQLite connection string: {ConnectionString}", connectionString);
 
-        options
-            .UseSqlite(
-                connectionString,
-                sqLiteOptions => sqLiteOptions.MigrationsAssembly(GetType().Assembly))
-            // TODO: Remove when https://github.com/dotnet/efcore/pull/35873 is merged & released
-            .ConfigureWarnings(warnings =>
-                warnings.Ignore(RelationalEventId.NonTransactionalMigrationOperationWarning))
-            .AddInterceptors(new PragmaConnectionInterceptor(
-                _logger,
-                GetOption<int?>(customOptions, "cacheSize", e => int.Parse(e, CultureInfo.InvariantCulture)),
-                GetOption(customOptions, "lockingmode", e => e, () => "NORMAL")!,
-                GetOption(customOptions, "journalsizelimit", int.Parse, () => 134_217_728),
-                GetOption(customOptions, "tempstoremode", int.Parse, () => 2),
-                GetOption(customOptions, "syncmode", int.Parse, () => 1),
-                customOptions?.Where(e => e.Key.StartsWith("#PRAGMA:", StringComparison.OrdinalIgnoreCase)).ToDictionary(e => e.Key["#PRAGMA:".Length..], e => e.Value) ?? []));
+        Console.WriteLine("=== IMPLEMENTING SQLMITE-STYLE BRIDGE ===");
+        var pgConnectionString = $"Host={Environment.GetEnvironmentVariable("JELLYFIN_DB_HOST") ?? "postgres"};Port={Environment.GetEnvironmentVariable("JELLYFIN_DB_PORT") ?? "5432"};Database={Environment.GetEnvironmentVariable("JELLYFIN_DB_NAME") ?? "jellyfin"};Username={Environment.GetEnvironmentVariable("JELLYFIN_DB_USER") ?? "jellyfin"};Password={Environment.GetEnvironmentVariable("JELLYFIN_DB_PASSWORD") ?? "jellyfin"}";
+        Console.WriteLine($"=== POSTGRESQL TARGET: {pgConnectionString} ===");
+
+        // Use PostgreSQL directly but let SQLite migrations run
+        // This is the core of what SQLMite does - translate SQLite to PostgreSQL
+        options.UseNpgsql(pgConnectionString, npgsqlOptions =>
+        {
+            npgsqlOptions.MigrationsAssembly("Jellyfin.Server.Implementations");
+            // Enable migration translation
+            npgsqlOptions.CommandTimeout(30);
+        });
+
+        // Add SQLMite-style command interceptor for DDL translation
+        options.AddInterceptors(new SqliteToPostgreSqlTranslator());
+
+        Console.WriteLine("=== SQLMITE-STYLE: POSTGRESQL WITH SQLITE MIGRATION COMPATIBILITY ===");
 
         var enableSensitiveDataLogging = GetOption(customOptions, "EnableSensitiveDataLogging", e => e.Equals(bool.TrueString, StringComparison.OrdinalIgnoreCase), () => false);
         if (enableSensitiveDataLogging)

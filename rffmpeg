@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# Local ffmpeg for all operations (single-container setup)
+LOCAL_FFMPEG="/usr/lib/jellyfin-ffmpeg/ffmpeg"
+
+# For single-container deployment, just use local ffmpeg for everything
+exec $LOCAL_FFMPEG "$@"

@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# Local ffprobe for all operations (single-container setup)
+LOCAL_FFPROBE="/usr/lib/jellyfin-ffmpeg/ffprobe"
+
+# For single-container deployment, just use local ffprobe for everything
+exec $LOCAL_FFPROBE "$@"
