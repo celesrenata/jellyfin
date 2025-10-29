@@ -1,12 +1,14 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 
+# Install git for webpack build
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
 # Copy source code
 WORKDIR /src
 COPY . .
 
 # Build the application
 RUN dotnet restore Jellyfin.sln
-RUN dotnet build Jellyfin.sln -c Release --no-restore
 RUN dotnet publish Jellyfin.Server/Jellyfin.Server.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
@@ -20,6 +22,7 @@ RUN apt-get update && apt-get install -y \
     libicu72 \
     libssl3 \
     gnupg \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install jellyfin-ffmpeg from official repository
@@ -33,8 +36,23 @@ RUN mkdir -p /etc/apt/keyrings \
 # Create jellyfin user
 RUN groupadd -r jellyfin && useradd -r -g jellyfin jellyfin
 
+# Download and build Jellyfin Web UI
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && curl -L https://github.com/jellyfin/jellyfin-web/archive/refs/tags/v10.11.0.tar.gz -o /tmp/jellyfin-web.tar.gz \
+    && mkdir -p /tmp/jellyfin-web-src \
+    && tar -xzf /tmp/jellyfin-web.tar.gz -C /tmp/jellyfin-web-src --strip-components=1 \
+    && cd /tmp/jellyfin-web-src \
+    && npm ci --no-audit \
+    && npm run build:production \
+    && mkdir -p /jellyfin/jellyfin-web \
+    && cp -r dist/* /jellyfin/jellyfin-web/ \
+    && rm -rf /tmp/jellyfin-web* \
+    && apt-get remove -y nodejs \
+    && apt-get autoremove -y
+
 # Create directories
-RUN mkdir -p /jellyfin/jellyfin-web /cache /config /media \
+RUN mkdir -p /cache /config /media \
     && chown -R jellyfin:jellyfin /jellyfin /cache /config /media
 
 # Copy built application from build stage

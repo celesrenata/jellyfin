@@ -7,4 +7,4 @@ if [[ -n "$JELLYFIN_DB_TYPE" && "$JELLYFIN_DB_TYPE" == "postgresql" ]]; then
 fi
 
 # Use jellyfin-ffmpeg via rffmpeg script
-exec dotnet /jellyfin/jellyfin.dll --nowebclient --datadir /config --cachedir /cache --ffmpeg /usr/local/bin/rffmpeg
+exec dotnet /jellyfin/jellyfin.dll --datadir /config --cachedir /cache --ffmpeg /usr/local/bin/rffmpeg --webdir /jellyfin/jellyfin-web

@@ -119,6 +119,12 @@ public sealed class SqliteDatabaseProvider : IJellyfinDatabaseProvider
         // Add SQLMite-style command interceptor for DDL translation
         options.AddInterceptors(new SqliteToPostgreSqlTranslator());
 
+        // PATCH: DateTimeColumnInterceptor disabled - SqliteToPostgreSqlTranslator handles DateTime conversion
+        // options.AddInterceptors(new DateTimeColumnInterceptor());
+
+        // PATCH: DateTimeReaderInterceptor disabled - causing Npgsql type conversion errors
+        // options.AddInterceptors(new DateTimeReaderInterceptor());
+
         Console.WriteLine("=== SQLMITE-STYLE: POSTGRESQL WITH SQLITE MIGRATION COMPATIBILITY ===");
 
         var enableSensitiveDataLogging = GetOption(customOptions, "EnableSensitiveDataLogging", e => e.Equals(bool.TrueString, StringComparison.OrdinalIgnoreCase), () => false);

@@ -2,6 +2,7 @@ using System;
 using Jellyfin.Database.Implementations.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Jellyfin.Database.Implementations.ModelConfiguration;
 
@@ -14,6 +15,21 @@ public class BaseItemConfiguration : IEntityTypeConfiguration<BaseItemEntity>
     public void Configure(EntityTypeBuilder<BaseItemEntity> builder)
     {
         builder.HasKey(e => e.Id);
+
+        // PATCH: Add value converters for datetime columns to handle VARCHAR to DateTime conversion
+        var dateTimeConverter = new ValueConverter<DateTime?, DateTime?>(
+            v => v,
+            v => v.HasValue ? DateTime.Parse(v.ToString()!, System.Globalization.CultureInfo.InvariantCulture) : null);
+
+        builder.Property(e => e.DateCreated).HasConversion(dateTimeConverter);
+        builder.Property(e => e.DateModified).HasConversion(dateTimeConverter);
+        builder.Property(e => e.DateLastRefreshed).HasConversion(dateTimeConverter);
+        builder.Property(e => e.DateLastSaved).HasConversion(dateTimeConverter);
+        builder.Property(e => e.DateLastMediaAdded).HasConversion(dateTimeConverter);
+        builder.Property(e => e.PremiereDate).HasConversion(dateTimeConverter);
+        builder.Property(e => e.EndDate).HasConversion(dateTimeConverter);
+        builder.Property(e => e.StartDate).HasConversion(dateTimeConverter);
+
         // TODO: See rant in entity file.
         // builder.HasOne(e => e.Parent).WithMany(e => e.DirectChildren).HasForeignKey(e => e.ParentId);
         // builder.HasOne(e => e.TopParent).WithMany(e => e.AllChildren).HasForeignKey(e => e.TopParentId);

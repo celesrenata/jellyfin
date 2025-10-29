@@ -58,32 +58,51 @@ namespace Jellyfin.Database.Providers.Sqlite
 
             var originalSql = command.CommandText;
 
-            // Log all SQL commands to see what's causing ExternalId issues
-            if (originalSql.Contains("ExternalId", StringComparison.OrdinalIgnoreCase) ||
-                originalSql.Contains("ExternalSeriesId", StringComparison.OrdinalIgnoreCase) ||
-                originalSql.Contains("ExternalServiceId", StringComparison.OrdinalIgnoreCase))
+            // FINAL FIX: Prevent double CAST conversion with better detection
+            var dateTimeColumns = new[] { "DateCreated", "DateLastMediaAdded", "DateLastRefreshed", "DateLastSaved", "DateModified", "EndDate", "PremiereDate", "StartDate" };
+            bool patched = false;
+
+            foreach (var column in dateTimeColumns)
             {
-                Console.WriteLine("=== EXTERNALID SQL DETECTED ===");
-                Console.WriteLine($"SQL: {originalSql}");
-                if (command.Parameters?.Count > 0)
+                // Skip if already converted in any form
+                if (originalSql.Contains($"CAST(\"{column}\"", StringComparison.Ordinal) ||
+                    originalSql.Contains($"CAST({column}.", StringComparison.Ordinal))
                 {
-                    Console.WriteLine("Parameters:");
-                    foreach (System.Data.Common.DbParameter param in command.Parameters)
-                    {
-                        Console.WriteLine($"  {param.ParameterName}: {param.Value} ({param.DbType})");
-                    }
+                    continue;
                 }
 
-                Console.WriteLine("=== END EXTERNALID SQL ===");
+                // Handle table-qualified columns: table."DateCreated" -> CAST(table."DateCreated" AS TIMESTAMP)
+                var qualifiedPattern = @"(\w+\.)" + "\"" + column + "\"";
+                var qualifiedReplacement = @"CAST($1""" + column + @""" AS TIMESTAMP)";
+
+                if (System.Text.RegularExpressions.Regex.IsMatch(originalSql, qualifiedPattern))
+                {
+                    originalSql = System.Text.RegularExpressions.Regex.Replace(originalSql, qualifiedPattern, qualifiedReplacement);
+                    patched = true;
+                }
+
+                // Handle unqualified columns: "DateCreated" -> CAST("DateCreated" AS TIMESTAMP)
+                // But only if not already qualified
+                var unqualifiedPattern = @"(?<!\w\.)" + "\"" + column + "\"";
+                var unqualifiedReplacement = @"CAST(""" + column + @""" AS TIMESTAMP)";
+
+                if (System.Text.RegularExpressions.Regex.IsMatch(originalSql, unqualifiedPattern))
+                {
+                    originalSql = System.Text.RegularExpressions.Regex.Replace(originalSql, unqualifiedPattern, unqualifiedReplacement);
+                    patched = true;
+                }
+            }
+
+            if (patched)
+            {
+                command.CommandText = originalSql;
+                return;
             }
 
             var translatedSql = TranslateSqliteToPostgreSql(originalSql);
 
             if (translatedSql != originalSql)
             {
-                Console.WriteLine("=== SQLMITE TRANSLATION ===");
-                Console.WriteLine($"FROM: {originalSql.Substring(0, Math.Min(100, originalSql.Length))}...");
-                Console.WriteLine($"TO: {translatedSql.Substring(0, Math.Min(100, translatedSql.Length))}...");
 #pragma warning disable CA2100 // Review SQL queries for security vulnerabilities
                 command.CommandText = translatedSql;
 #pragma warning restore CA2100 // Review SQL queries for security vulnerabilities
@@ -174,8 +193,8 @@ namespace Jellyfin.Database.Providers.Sqlite
             // Convert datetime('now') to NOW()
             query = System.Text.RegularExpressions.Regex.Replace(query, @"datetime\s*\(\s*'now'\s*\)", "NOW()", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-            // Convert SQLite PRAGMA to PostgreSQL equivalent
-            query = System.Text.RegularExpressions.Regex.Replace(query, @"PRAGMA\s+.*", string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // Convert SQLite PRAGMA to PostgreSQL equivalent (use SELECT 1 as no-op)
+            query = System.Text.RegularExpressions.Regex.Replace(query, @"PRAGMA\s+.*", "SELECT 1", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
             // Convert IF NOT EXISTS for CREATE TABLE
             query = System.Text.RegularExpressions.Regex.Replace(query, @"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS", "CREATE TABLE IF NOT EXISTS", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
