@@ -2,8 +2,8 @@
 
 # Jellyfin image configuration
 image:
-  repository: ghcr.io/celesrenata/jellyfin
-  tag: postgres
+  repository: ghcr.io/celesrenata/clusterjellyfin
+  tag: master
   pullPolicy: IfNotPresent
   pullSecrets: []
 
@@ -82,7 +82,7 @@ persistence:
     accessMode: ReadWriteOnce
     existingClaim: ""
     annotations: {}
-  
+
   # Transcoding cache
   cache:
     enabled: true
@@ -91,7 +91,7 @@ persistence:
     accessMode: ReadWriteOnce
     existingClaim: ""
     annotations: {}
-  
+
   # Media files
   media:
     enabled: true
@@ -110,20 +110,20 @@ persistence:
 env:
   # Timezone
   TZ: "America/Los_Angeles"
-  
+
   # Jellyfin directories (managed by chart, don't change unless needed)
   JELLYFIN_DATA_DIR: "/config/data"
   JELLYFIN_CACHE_DIR: "/cache"
   JELLYFIN_LOG_DIR: "/config/log"
   JELLYFIN_CONFIG_DIR: "/config"
-  
+
   # PostgreSQL connection (auto-configured from postgresql or externalPostgresql)
   # JELLYFIN_POSTGRES_HOST: auto-configured
   # JELLYFIN_POSTGRES_PORT: auto-configured
   # JELLYFIN_POSTGRES_DATABASE: auto-configured
   # JELLYFIN_POSTGRES_USER: auto-configured
   # JELLYFIN_POSTGRES_PASSWORD: auto-configured
-  
+
   # Optional FFmpeg settings
   # JELLYFIN_FFmpeg_probesize: "50000000"
   # JELLYFIN_FFmpeg_analyzeduration: "50000000"
@@ -146,7 +146,7 @@ hwaccel:
   enabled: false
   # Type: intel, nvidia, or amd
   type: ""
-  
+
   # Device configuration
   devices:
     # Intel/AMD GPU
@@ -160,11 +160,11 @@ hwaccel:
         - /dev/nvidia0
         - /dev/nvidiactl
         - /dev/nvidia-uvm
-  
+
   # Node selector for GPU nodes
   nodeSelector: {}
     # gpu: "true"
-  
+
   # Tolerations for GPU nodes
   tolerations: []
     # - key: nvidia.com/gpu

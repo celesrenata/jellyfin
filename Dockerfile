@@ -91,12 +91,23 @@ echo "Starting Jellyfin with PostgreSQL backend..."\n\
 echo "PostgreSQL Host: ${JELLYFIN_POSTGRES_HOST}:${JELLYFIN_POSTGRES_PORT}"\n\
 echo "Database: ${JELLYFIN_POSTGRES_DATABASE}"\n\
 \n\
-exec dotnet jellyfin.dll \\\n\
-  --datadir "${JELLYFIN_DATA_DIR}" \\\n\
-  --configdir "${JELLYFIN_CONFIG_DIR}" \\\n\
-  --cachedir "${JELLYFIN_CACHE_DIR}" \\\n\
-  --logdir "${JELLYFIN_LOG_DIR}" \\\n\
-  --webdir /jellyfin/jellyfin-web\n\
+# Check if web client exists, if not use --nowebclient flag\n\
+if [ -d "/jellyfin/jellyfin-web" ] && [ "$(ls -A /jellyfin/jellyfin-web)" ]; then\n\
+  exec dotnet jellyfin.dll \\\n\
+    --datadir "${JELLYFIN_DATA_DIR}" \\\n\
+    --configdir "${JELLYFIN_CONFIG_DIR}" \\\n\
+    --cachedir "${JELLYFIN_CACHE_DIR}" \\\n\
+    --logdir "${JELLYFIN_LOG_DIR}" \\\n\
+    --webdir /jellyfin/jellyfin-web\n\
+else\n\
+  echo "Web client not found, starting without web client..."\n\
+  exec dotnet jellyfin.dll \\\n\
+    --datadir "${JELLYFIN_DATA_DIR}" \\\n\
+    --configdir "${JELLYFIN_CONFIG_DIR}" \\\n\
+    --cachedir "${JELLYFIN_CACHE_DIR}" \\\n\
+    --logdir "${JELLYFIN_LOG_DIR}" \\\n\
+    --nowebclient\n\
+fi\n\
 ' > /entrypoint.sh && chmod +x /entrypoint.sh
 
 VOLUME ["/config", "/cache", "/media"]
